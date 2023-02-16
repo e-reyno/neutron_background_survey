@@ -2,6 +2,8 @@ import matplotlib.pyplot as plt
 from matplotlib import colors
 import numpy as np
 import diamon_analysis as da
+from matplotlib import rcParams
+
 from scipy import interpolate
 #This script plots all data
 
@@ -245,70 +247,37 @@ def heat_plot(points, values):
 
     plt.title('Nearest')
     
-def contour_plot(x,y,z, label, norm=None):
+
+def plot_dose_map(x_array,y_array,z_array, z_label, levels):
+    fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(16,6))
+    norm = colors.LogNorm()
+    for i, (x, y, z, ax) in enumerate(zip(x_array, y_array, z_array, axs.ravel())):
+        if i  == 0:
+            label = "open"
+        elif i == 1:
+            label = "closed"
+        scat = contour_plot(x,y,z, ax, z_label,  label, levels, norm)
+    fig.colorbar(scat, ax=axs.ravel().tolist())
+
+
+    plt.show()
+def contour_plot(x,y,z, ax, z_label, status, levels, norm):
 
     # target grid to interpolate to
-    xi = np.arange(-45, 45, 0.05)
-    yi  = np.arange(-60,60, 0.05)
+    xi = np.arange(-45, 45, 0.1)
+    yi  = np.arange(-60,60, 0.1)
     xi,yi = np.meshgrid(xi,yi)
-
-    # set mask
-
     # interpolate
-    zi = interpolate.griddata((x,y),z,(xi,yi),method='linear', rescale=True)
+    zi = interpolate.griddata((x,y),z,(xi,yi), method='linear', rescale=True)
     # plot
-    fig = plt.figure(figsize=(25,15))
-    ax = fig.add_subplot(221)
-    scat = ax.contourf(xi,yi,zi, levels=50, cmap='jet')
-    ax.plot(x,y,'k.')
+    scat = ax.contourf(xi,yi,zi, levels=levels, cmap='jet',norm=norm)
+    #scat.set_clim(vmin=vmin, vmax=vmax)
+    #scat.set_cticks(np.linspace(vmin, vmax, 5))
+    ax.plot(x,y,'k.' )
     ax.grid(alpha=0.4, color='black')
-    plt.xlabel('x (m)',fontsize=16)
-    plt.ylabel('y (m)',fontsize=16)
-    plt.title("distribution of " + label + " neutrons")
-    plt.colorbar(scat)
-    plt.show()
-
-def interpolate_data(x,y,z, aspect=1, cmap='jet'):
-    xi, yi = np.linspace(x.min(), x.max(), 100), np.linspace(y.min(), y.max(), 100)
-    xi, yi = np.meshgrid(xi, yi)
-
-    # Interpolate missing data
-    rbf = interpolate.Rbf(x, y, z, function='cubic')
-    zi = rbf(xi, yi)
-
-    _, ax = plt.subplots(figsize=(6, 6))
-
-    hm = ax.imshow(zi, interpolation='nearest', cmap=cmap,
-                    extent=[x.min(), x.max(), y.max(), y.min()]) 
-    ax.scatter(x, y, marker='x', color='black')
-    ax.set_aspect(aspect)
-    return hm
-def normalize(data, min, max):
-    data = data.astype(np.float)
-    return (data - min) / (max - min)
-
-def test(x,y, z):
-    nx = 200
-    ny = 200
-    xmin = x.min()
-    xmax = x.max()
-    ymin = y.min()
-    ymax = y.max()
-    xi = np.linspace(xmin, xmax, nx)
-    yi = np.linspace(ymin, ymax, ny)
-    xi, yi = np.meshgrid(xi, yi)
-
-    # Interpolate using delaunay triangularization 
-    x_new, xi_new = normalize(x, xmin, xmax), normalize(xi, xmin, xmax)
-    y_new, yi_new = normalize(y, ymin, ymax), normalize(yi, ymin, ymax)
-
-    # Interpolate using delaunay triangularization 
-    zi = interpolate.griddata((x_new, y_new), z, (xi_new, yi_new), method='cubic')
-
-    # Plot the results
-    plt.figure()
-    scat = plt.pcolormesh(xi,yi,zi)
-    plt.scatter(x,y, c=z)
-    plt.colorbar(scat)
-    plt.axis([xmin, xmax, ymin, ymax])
-    plt.show()
+    ax.set_title("shutter " + status)
+    ax.set_xlabel('x (m)',fontsize=9)
+    ax.set_ylabel('y (m)',fontsize=9)
+    plt.suptitle("Heat map of " + z_label +" distribution in TS2")
+    return scat
+    #plt.colorbar(scat)
