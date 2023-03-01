@@ -4,6 +4,8 @@ import pandas as pd
 from scipy.signal import find_peaks
 import pickle
 import influx_data_query as idb
+from datetime import datetime
+
 def save_pickle(data, name):
     """
     Saves pickled data to file. (less memory)
@@ -22,12 +24,17 @@ def influx_db_query(dates, names=None):
     """"
     load influx database between selected dates and option include specific channel names
     args:
-        dates (list of datetime)
+        dates (list of datetime as STR)
         names (optiponal): str list of channel names to query if none select all beamline and current info
     """
-    start = dates[0]
-    end = dates[1]
-    query_data = idb.query_object.get_data(start, end, names)
+    query_obj = idb.query_object()
+    query_obj.start = dates[0]
+    query_obj.end = dates[1]
+    if names is None:
+        query_obj.names = idb.channel_names()
+    else:
+        query_obj.names = names
+    query_data = query_obj.influx_query()
     return query_data
 
 def filter_location(data, building):
@@ -309,9 +316,9 @@ def get_query_info(data, time):
     #extract the tail of df where shutter df matches previous times
     status = data[data.index < time].tail(1)["_value"].values[0]
     if status == 1:
-        return False
-    if status == 2:
         return True
+    if status == 2:
+        return False
     if status == 3:
         return False
 
@@ -385,9 +392,10 @@ def normalise_dose(data):
     target_station = get_names(data["reference"])[0]
     if target_station == "ts1":
         #divide by mean current at the time and for 0 current set dose to 0
-        data["out"]["norm_dose"] = data["out"]["H*(10)r"].divide(data["out"]["ts1_current"]).replace(np.inf, 0)
+        # 30 is average beam current for day
+        data["out"]["norm_dose"] = (30 * data["out"]["H*(10)r"].divide(data["out"]["ts1_current"]).replace(np.inf, 0))
     if target_station == "ts2":
-        data["out"]["norm_dose"] = data["out"]["H*(10)r"].divide(data["out"]["ts2_current"]).replace(np.inf, 0)
+        data["out"]["norm_dose"] = (30 * data["out"]["H*(10)r"].divide(data["out"]["ts2_current"]).replace(np.inf, 0))
     return data
 
 def dominant_energy(energy):
@@ -451,6 +459,8 @@ def filter_shutter_status(data, flag):
     """
     filtered_df = []
     for result in data.values():
+        #remove low current
+        result = filter_low_beam_current(result, 25)
         #remove epb measurements with no shutter status
         if "shutter-open" in result["out"].keys():
             filtered_df = filtered_df + (last_row_shutter_change(result))
@@ -517,3 +527,38 @@ def filter_low_beam_current(data, minimum_current):
 #Todo - add comparison between repeats of data (same x,y,z)
 def compare_repeats(data1, data2):
     return
+
+def check_updated_shutter_info(shutters):
+    # add check to load new data
+    date = get_date_df(shutters, "ts2_current", "_time")
+    if date.date() < datetime.today().date():
+        shutters = append_new_shutter_info(shutters)
+        #saves new shutter information into pickle for later use
+        save_pickle(shutters, "shutter_data")
+    return shutters
+
+def append_new_shutter_info(shutters):
+    new = latest_shutters(shutters)
+    result = {key: pd.concat([shutters[key], df], ignore_index=True) for key, df in new.items()}
+    return result
+
+def latest_shutters(current_shutter):
+    last_time = get_date_df(current_shutter,"ts2_current", "_time")
+    last_time = last_time.strftime('%Y-%m-%dT%H:%M:%S.%fZ')
+    today = idb.date_to_str(datetime.today())
+    dates = [last_time, today]
+    shutters = influx_db_query(dates)
+    return shutters
+
+def get_date_df(df, channel_name, cname):
+    """This function extracts in a series of datetime the last date
+    Args:
+        df (pandas dataframe): df contianing time series column
+        channel name: str name of beamline shuttter/current
+        cname: str of name of column
+    Returns:
+        datetime
+    """
+    time = df[channel_name][cname]
+    last_time = time.max()
+    return last_time
